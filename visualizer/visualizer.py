@@ -55,7 +55,7 @@ class Visualizer:
 
         output.append("</div>")
         output.append("<script>")
-        output.append("$(\"#tabs ul li a\").click(function(){   $(\"#tabs ul li\").removeClass(\"tabs_li_click\");  $(this).parent().addClass(\"tabs_li_click\"); var tabsName = $(this).text();  var div_id = \"#\" + tabsName;    $(\"#tabs\").children('div').hide();  $(div_id).show(); });")
+        output.append("$(\"#tabs ul li a\").click(function(){   $(\"#tabs ul li\").removeClass(\"tabs_li_click\");  $(this).parent().addClass(\"tabs_li_click\"); var tabsName = $(this).text();  var div_id = \"#\" + tabsName; $(\"#tabs\").children('div').hide(); $(div_id).show(); });")
         output.append("$( \".cetune_pic\" ).hide();")
         output.append("$( \".cetune_table a\" ).click(function(){$(this).parents('.cetune_table').parent().children('.cetune_pic').hide();var id=$(this).attr('id'); $(this).parents('.cetune_table').parent().children('#'+id+'_pic').fadeIn()});")
         output.append("$(\"#tabs ul li a\").first().click()")

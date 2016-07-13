@@ -6,16 +6,21 @@ from tuner import *
 import web
 import json
 from visualizer import *
+from login import *
 import re
 import subprocess
 import signal
 import markdown2
 #import markdown
 import codecs
+import ConfigParser
+import os
+import collections
 
+global render
 render = web.template.render('templates/')
 urls = (
-  '/', 'index',
+  '/', 'login',
   '/configuration/(.+)', 'configuration',
   '/monitor/(.+)', 'monitor',
   '/descrption/(.+)','description',
@@ -25,10 +30,33 @@ urls = (
 web.cache = {}
 web.cache["tuner_thread"] = None
 web.cache["cetune_status"] = "idle"
+global session
+session = ''
 
 class index:
     def GET(self):
         web.seeother('/static/index.html')
+
+class login:
+    def GET(self):
+        name = "login"
+        session = ''
+        return render.model(name)
+    def POST(self):
+        data = web.input()
+        if data["login"] == "false":
+            name = "login"
+            return render.model(name)
+        else:
+            session = data["username"]
+            result = UserClass.check_account([data["username"],data["passwd"]])
+            if result == 'true' :
+                name = "index"
+                return render.model(name)
+            else:
+                return ''
+
+
 
 class configuration:
 

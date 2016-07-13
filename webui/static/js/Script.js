@@ -163,7 +163,7 @@ function Report_Timer(init){
 			 
 			 appendHtml +="<a id='menu_"+session_name+"'>"+ str +"</a>";
 		
-		     appendHtml +="<img class='img_menu_li_cancel_class' src='image/cancel.png'>";
+		     appendHtml +="<img class='img_menu_li_cancel_class' src='../static/image/cancel.png'>";
 		     appendHtml +="</li>";
 			 
 			 
@@ -242,7 +242,10 @@ function GetTimestamp(){
 
 /*******************************************************************************************************/
 $(document).ready(function(){
-      
+    do_document_ready();
+});
+   
+function do_document_ready(){
     //init seting-------------------------------------------------------------------------
    Init(); 
  
@@ -358,9 +361,9 @@ $(document).ready(function(){
 	
     
     //traverse the sub menu li, check Configuation Data is true----------------------------------
-    CheckTableDataError();
+    //CheckTableDataError();
 	
-    ExecutvieCheckSync();
+    //ExecutvieCheckSync();
 	
     //Executive 
     if(CheckIsExecutive() == "true"){    
@@ -402,7 +405,7 @@ $(document).ready(function(){
 
     });  
 
-});
+}
 
 function CheckTableDataError(){
 	//traverse the sub menu li, check Configuation Data is true----------------------------------
@@ -486,6 +489,13 @@ function ExecutvieCheck(event){
     var result = GetDataByAjax_POST(address_Configuration_Set,data);
 	$("#workflow").click();
     event.stopPropagation();    //  Stop the event bubbling
+}
+
+function ChangeActive(topcontroler,controler){
+    var name = "#"+controler
+    tc = topcontroler+' a'
+    $(tc).removeClass('active');
+    $(name).addClass('active');
 }
 
 //init setting

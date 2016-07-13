@@ -65,8 +65,8 @@ td{ max-width:500px;}
 }
 
 .cetune_table thead{
-    position:fixed;
-    top:75px;
+    /*position:fixed;
+    top:75px;*/
 }
 
 .cetune_table td, th { 
