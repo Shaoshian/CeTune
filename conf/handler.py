@@ -6,6 +6,7 @@ lib_path = os.path.abspath(os.path.join('..'))
 sys.path.append(lib_path)
 from collections import OrderedDict
 from conf import config
+from conf import description
 import re
 import argparse
 
@@ -17,6 +18,44 @@ class ConfigHandler():
         self.required_lists = self.list_required_config()
         for request_type in self.required_lists:
             self.get_group( request_type )
+
+    def get_help(self):
+        formated_report = {}
+        output = []
+        #output.append("<table class='help_table_class'>")
+        #output.append(" <thead>")
+        #output.extend( self.getDescriptionTitle() )
+        #output.append(" </thead>")
+        dict_desc = description.Description.get_all_description()
+        first_char = 'A'
+        output.append("</table><p id = 'label_id' class = 'left_style'>------------> A <-----------</p><table class='help_table_class'>")
+        output.append(" <thead>")
+        output.extend( self.getDescriptionTitle() )
+        output.append(" </thead>")
+        output.append(" <tbody>")
+        for key in dict_desc.keys():
+            if str(key)[0].upper() != first_char:
+                first_char = str(key)[0].upper()
+                output.append("</tbody></table><p id = 'label_id' class = 'left_style'>------------> "+first_char+" <------------</p><tbody><table class='help_table_class'>")
+                output.append(" <thead>")
+                output.extend( self.getDescriptionTitle() )
+                output.append(" </thead>")
+            tr_data = " <tr><td class = 'left_style'>"+key+" </td><td id='mid_style'>"+description.DefaultValue.get_defaultvalue_by_key(key)+"</td><td id = 'td_right_id' class='right_style'>"+dict_desc[key]+" </td> </tr>"
+            output.append(tr_data)
+        output.append(" </tbody></table>")
+        output.append("<script>")
+        output.append("$('.cetune_table tr').dblclick(function(){var path=$(this).attr('href'); window.location=path})")
+        output.append("</script>")
+        return "".join(output)
+
+    def getDescriptionTitle(self):
+        output = []
+        output.append(" <tr>")
+        output.append(" <th>Item</th>")
+        output.append(" <th>Default Value</th>")
+        output.append(" <th>Description</th>")
+        output.append(" </tr>")
+        return output
 
     def get_group(self, request_type):
         res = []
@@ -33,7 +72,10 @@ class ConfigHandler():
             return cases_conf
 
         for key, value in tmp_res.items():
-            res.append({"key":key,"value":value,"check":True,"dsc":""})
+	    self.desc = ""
+	    if key != "":
+		self.desc = description.Description.get_description_by_key(key)
+            res.append({"key":key,"value":value,"check":True,"dsc":self.desc})
 
         if request_type in self.required_lists:
             for required_key in self.required_lists[request_type]:
@@ -41,11 +83,12 @@ class ConfigHandler():
                      value = self.required_lists[request_type][required_key]
                      res.append({"key":required_key, "value":value, "check":False, "dsc":"please check or complete"})
                      self.set_config(request_type, required_key, value)
-
         return res
 
     def set_config(self, request_type, key, value):
         conf_type = self.get_corresponde_config(request_type)
+        import pdb
+        #pdb.set_trace()
         if conf_type == "tuner":
             res = self.tuner_conf.set_config(key, value)
         elif conf_type == "all":
@@ -164,6 +207,7 @@ class ConfigHandler():
         required_list["ceph_hard_config"]["cluster_network"] = ""
         required_list["ceph_hard_config"]["osd_objectstore"] = "filestore"
         required_list["benchmark"] = OrderedDict()
+        required_list["benchmark"]["disable_tuning_check"] = "false"
         required_list["benchmark"]["tmp_dir"]="/opt/"
         required_list["benchmark"]["dest_dir"]="/mnt/data/"
         required_list["benchmark"]["cache_drop_level"]=1
@@ -171,6 +215,7 @@ class ConfigHandler():
         required_list["benchmark"]["collector"]="blktrace,strace,fatrace,lttng,perfcounter"
         required_list["benchmark"]["perfcounter_data_type"]="osd,filestore"
         required_list["benchmark"]["perfcounter_time_precision_level"]=6
+        #required_list["benchmark"]["Description"]="width=10,depth=1,files=10000,threads=16,rdpct=65"
 
         required_list["workflow"] = OrderedDict()
         required_list["workflow"]["workstages"] = ["deploy","benchmark"]

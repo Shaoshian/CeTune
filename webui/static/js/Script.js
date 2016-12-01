@@ -12,6 +12,8 @@ var address_BenchmarkEngine_Check="../configuration/check_testcase";
 var address_Delete="../configuration/del_config";
 var address_Status="../monitor/tail_console";
 var address_Report="../results/get_summary";
+var address_Description="../configuration/get_help";
+var address_Guide="../configuration/get_guide";
 var address_Report_Detail="../results/get_detail";
 var address_Report_Detail_pic="../results/get_detail_pic";
 var address_Report_Detail_csv="../results/get_detail_csv";
@@ -26,6 +28,7 @@ var timer_Report;
 var interval_RunStatus=3000;
 var interval_Console=500;
 var interval_Report=30000;
+var edit_flag = 0;
 
 /*************Interval function************************************************************************/
 
@@ -86,6 +89,84 @@ function Console_Timer(init){
     $("#div_console_id").scrollTop( scroll_position );
 }
 
+function Helper(init){
+    init = !init?false:true;
+    var cetune_status = $("#div_top_status_id").text();
+    if( cetune_status.indexOf("idle") > -1 && init != true )
+        return
+    var timestamp = GetTimestamp();
+
+    var data ;
+    var Data = GetDataByAjax(address_Guide);
+    $("#div_Markdown").html(Data);
+    var consoleData = GetDataByAjax(address_Description);
+    $("#div_Help").html(consoleData);
+    $("#div_Help tr").dblclick(function(){
+        return
+    })
+    //add submenu to left
+    data = ""
+    $("#div_Markdown h4").each(function(){
+        text = $(this).text();
+        //$(this).insertBefore("<div id=\""+text+"\" style=\"postion:relative; top:-125px\"></div>");
+        $("<div id=\""+text+"\" style=\"position:relative; top:-125px\"></div>").insertBefore($(this));
+        data += "<li><a href='#"+text+"'>"+text+"</a></li>";
+    });
+    $("#ul_user_guide").html(data);
+    data = ""
+    $("#div_Help #label_id").each(function(){
+        text = $(this).text();
+        $("<div id=\""+text+"\" style=\"position:relative; top:-125px\"></div>").insertBefore($(this));
+        data += "<li><a href='#"+text+"'>"+text+"</a></li>";
+    });
+    $("#ul_manual").html(data);
+
+
+}
+
+function getRowObj(obj){
+    var i = 0;
+    while(obj.tagName.toLowerCase() != "tr"){
+        obj = obj.parentNode;
+        if(obj.tagName.toLowerCase() == "table")
+            return null;
+    }
+    return obj;
+}
+//edit value cancel
+function Cancel_Click(tr_id,cellText){
+    var trObj = document.getElementById(tr_id);
+    cellHtml = "<td title='"+cellText+"'>"+cellText+"</td>"
+    trObj.cells[3].innerHTML = cellHtml;
+    edit_flag = 2;
+}
+
+//edir value OK
+function ok_click(tr_No,tr_id,cellText){
+    var trObj = document.getElementById(tr_id);
+    var txt = document.getElementById('text_id_'+tr_No);
+    cellHtml = "<td title='"+cellText+"'>"+txt.value+"</td>"
+    trObj.cells[3].innerHTML = cellHtml;
+    edit_flag = 2;
+    var postData = {
+        "tr_id": tr_id,
+        "celltext": txt.value
+    }
+    $.ajax({
+        type: "POST",
+        url: '../description/update',
+        data: postData,
+        async: false,
+        success: function(ResponseText) {
+            if(ResponseText == ''){
+                alert('update row data failed.');
+            }
+            else{
+                return;
+            }
+        }
+    });
+}
 
 function Report_Timer(init){
     init = !init?false:true;
@@ -96,6 +177,36 @@ function Report_Timer(init){
     reportSummaryData = reportSummaryData.replace(/<script>.*<\/script>/,'');
     $("#div_Reports").html(reportSummaryData);
 	
+    $("#div_Reports tr").click(function(){
+        var trObj = getRowObj(this);
+        var trArr = trObj.parentNode.children;
+        var tr_number = 0;
+        var e=event.srcElement;
+        var colnum = e.cellIndex;
+        //connectsqlite();
+        for(var trNo=0;trNo<trArr.length;trNo++){
+            if(trObj == trObj.parentNode.children[trNo]){
+                //alert(trNo);
+                tr_number = trNo;
+                rowObj = trArr[trNo];
+                cellObj = rowObj.cells[3];
+                tr_id = rowObj.id;
+                cellText = cellObj.outerText;
+                cellHtml = cellObj.outerHTML;
+            }
+        }
+        //if(c==null || c==0){
+        if(rowObj.cells[0].innerText != "runid" && colnum == 3){
+            if(edit_flag == 0){
+                edit_flag = 1;
+                var strHtml = "<input id = 'text_id_"+tr_number+"' value = '"+cellText+"' type='text' name='fname'/>";
+                strHtml += "<input class='btn btn-primary btn-xs' style='margin-left:3px' id = 'bnt_ok_id_"+tr_number+"' type='button' value='OK' onclick= 'ok_click(&quot;"+tr_number+"&quot;,&quot;"+tr_id+"&quot;,&quot;"+cellText+"&quot;)' />";
+                strHtml += "<input class='btn btn-primary btn-xs' style='margin-left:3px'  id = 'bnt_cancel_id_"+tr_number+"' type='button' value='Cancel' onclick= 'Cancel_Click(&quot;"+tr_id+"&quot;,&quot;"+cellText+"&quot;)'/>";
+                cellObj.innerHTML = strHtml;
+            }
+        }
+        if(edit_flag == 2){edit_flag = 0;}
+    });
 	
 	//----------------------------------------------
     $("#div_Reports tr").dblclick(function(){
@@ -126,7 +237,7 @@ function Report_Timer(init){
 			 
 			 appendHtml +="<a id='menu_"+session_name+"'>"+ str +"</a>";
 		
-		     appendHtml +="<img class='img_menu_li_cancel_class' src='image/cancel.png'>";
+		     appendHtml +="<img class='img_menu_li_cancel_class' src='../static/image/cancel.png'>";
 		     appendHtml +="</li>";
 			 
 			 
@@ -252,6 +363,10 @@ $(document).ready(function(){
                 clearTimer(timer_Console);
                 Report_Timer(true);
                 timer_Report = setInterval(Report_Timer,interval_Report);
+                break;
+
+	    case "menu_help_id":
+                Helper(true);
                 break;
                 
             default: 
@@ -525,12 +640,13 @@ function loading(){
 function DisplayConfiguationDataTable(request_type){
     //(1) get data for json obj
     var jsonObj_Config = GetConfigurationData(request_type);
-    
-    var address_Benchmark = "../configuration/get_group?request_type=testcase"; 
+
+    var address_Benchmark = "../configuration/get_group?request_type=testcase";
     var jsonObj_Benchmark = GetDataByAjax(address_Benchmark);    
-    
+    console.log("jsonObj_Bnechmark");
     //(2) display table
     CreateDataTableForConfiguration(jsonObj_Config , jsonObj_Benchmark ,request_type);
+    console.log("CreateDataTableForConfiguration");
 }
 
 //get data by ajax(post)

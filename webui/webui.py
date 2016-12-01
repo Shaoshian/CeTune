@@ -1,30 +1,70 @@
 import os, sys
 lib_path = os.path.abspath(os.path.join('..'))
 sys.path.append(lib_path)
+sys.path.append('/usr/local/lib/python2.7/dist-packages/web/')
 from conf import *
-from tuner import *
+from workflow import *
 import web
+from web.contrib.template import render_jinja
 import json
 from visualizer import *
+from login import *
 import re
 import subprocess
 import signal
+import markdown2
+#import markdown
+import codecs
+import ConfigParser
+import collections
+from web import form
+from login import *
 
-render = web.template.render('templates/')
 urls = (
   '/', 'index',
+  '/login', 'login',
+  '/logout', 'logout',
   '/configuration/(.+)', 'configuration',
   '/monitor/(.+)', 'monitor',
-  '/results/(.+)', 'results'
+  '/description/(.+)','description',
+  '/results/(.+)', 'results',
 )
 
+#render = web.template.render('templates/')
+render = render_jinja('templates/',encoding = 'utf-8',)
+web.config.debug = False
+app = web.application(urls, globals())
+session = web.session.Session(app, web.session.DiskStore('sessions'), initializer={'count': 0})
 web.cache = {}
 web.cache["tuner_thread"] = None
 web.cache["cetune_status"] = "idle"
 
 class index:
     def GET(self):
-        web.seeother('/static/index.html')
+        if session.get('logged_in',False):
+            return render.index(username = session.username)
+        raise web.seeother('/login')
+
+class login:
+    def GET(self):
+        return render.login(error_msg = "")
+
+    def POST(self):
+        i = web.input()
+        username = i.get('username')
+        passwd = i.get('passwd')
+        if UserClass.check_account([username,passwd]) == 'true':
+            session.logged_in = True
+            session.username = username
+            web.setcookie('system_mangement', '', 60)
+            raise web.seeother('/')
+        else:
+            return render.login(error_msg = "Failed:username or password is invalid !!")
+
+class logout:
+    def GET(self):
+        session.logged_in = False
+        raise web.seeother("/login")
 
 class configuration:
 
@@ -40,6 +80,19 @@ class configuration:
         conf = handler.ConfigHandler()
         web.header("Content-Type","application/json")
         return json.dumps(conf.get_group(request_type))
+
+    def get_help(self):
+        conf = handler.ConfigHandler()
+        web.header("Content-Type","application/json")
+        return json.dumps(conf.get_help())
+        #return json.dumps(description.get_descripation())
+
+    def get_guide(self):
+        input_file = codecs.open("%s/README.md" % lib_path, mode="r", encoding="utf-8")
+        text = input_file.read()
+        html = markdown2.markdown(text, extras=["fenced-code-blocks", "tables"])
+        #html = markdown.markdown(text, 'codehilite')
+        return html
 
     def set_config(self, request_type, key, value):
         conf = handler.ConfigHandler()
@@ -66,7 +119,7 @@ class configuration:
             return "false"
         common.clean_console()
         #thread_num = tuner.main(["--by_thread"])
-        thread_num = subprocess.Popen("cd ../tuner/; python tuner.py", shell=True)
+        thread_num = subprocess.Popen("cd ../workflow/; python workflow.py", shell=True)
         if thread_num:
             web.cache["tuner_thread"] = thread_num
             web.cache["cetune_status"] = "running"
@@ -128,6 +181,35 @@ class monitor:
         res["content"] = "".join(res["content"])
         web.header("Content-Type","application/json")
         return json.dumps(res)
+
+class description:
+    def GET(self, function_name = ""):
+        return common.eval_args( self, function_name, web.input() )
+
+    def POST(self, function_name = ""):
+        data = web.input()
+        tr_id = data["tr_id"]
+        new_description = data["celltext"]
+        view = visualizer.Visualizer({})
+        view.update_report_list_db(tr_id,new_description)
+        #return common.eval_args( self, function_name, web.input() )
+
+    def update(self):
+        data = web.input()
+        tr_id = data["tr_id"]
+        new_description = data["celltext"]
+        view = visualizer.Visualizer({})
+        view.update_report_list_db(tr_id,new_description)
+
+    def get_help(self):
+	view = visualizer.Visualizer({})
+        output = view.generate_description_view(False)
+        if not output:
+            return ""
+        html = ""
+        for line in output.split('\n'):
+            html += line.rstrip('\n')
+        return html
 
 class results:
     def GET(self, function_name = ""):
@@ -199,5 +281,4 @@ class defaults_pic:
         return None
 
 if __name__ == "__main__":
-    app = web.application(urls, globals())
     app.run()

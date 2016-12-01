@@ -145,7 +145,7 @@ def pdsh(user, nodes, command, option="error_check", except_returncode=0, nodie=
     for node in nodes:
         _nodes.append("%s@%s" % (user, node))
     _nodes = ",".join(_nodes)
-    args = ['pdsh', '-R', 'exec', '-w', _nodes, 'ssh', '%h', '-oConnectTimeout=15', command]
+    args = ['pdsh', '-R', 'exec', '-w', _nodes, '-f', str(len(nodes)), 'ssh', '%h', '-oConnectTimeout=15', command]
 #    args = ['pdsh', '-w', _nodes, command]
     printout("CONSOLE", args, screen=False)
 
@@ -412,9 +412,11 @@ class MergableDict:
 
 def size_to_Kbytes(size, dest_unit='KB'):
     if not str(size).isdigit():
-        res = re.search('(\d+\.*\d*)\s*(\w+)',size)
+        res = re.search('(\d+\.*\d*)\s*(\D*)',size)
         space_num = float(res.group(1))
         space_unit = res.group(2)
+        if space_unit == "":
+            space_unit = 'B'
     else:
         space_num = float(size)
         space_unit = 'B'
@@ -505,6 +507,31 @@ def eval_args( obj, function_name, args ):
         if func:
             res = func( **argv )
     return res
+
+def wait_ceph_to_health( user, controller ):
+        #wait ceph health to be OK
+        waitcount = 0
+        try:
+            while not check_health( user, controller ) and waitcount < 300:
+                printout("WARNING","Applied tuning, waiting ceph to be healthy")
+                time.sleep(3)
+                waitcount += 3
+        except:
+            printout("WARNING","Caught KeyboardInterrupt, exit")
+            sys.exit()
+        if waitcount < 300:
+            printout("LOG","Tuning has applied to ceph cluster, ceph is Healthy now")
+        else:
+            printout("ERROR","ceph is unHealthy after 300sec waiting, please fix the issue manually")
+            sys.exit()
+
+def check_health( user, controller ):
+    check_count = 0
+    stdout, stderr = pdsh(user, [controller], 'ceph health', option="check_return")
+    if "HEALTH_OK" in stdout:
+        return True
+    else:
+        return False
 
 def get_ceph_health(user, node):
     check_count = 0

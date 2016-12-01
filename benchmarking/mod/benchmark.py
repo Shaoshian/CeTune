@@ -19,11 +19,14 @@ class Benchmark(object):
     def go(self, testcase, tuning):
         common.bash("rm -f %s/conf/%s" % (self.pwd, common.cetune_log_file))
         common.bash("rm -f %s/conf/%s" % (self.pwd, common.cetune_error_file))
+        user = self.all_conf_data.get("user")
+        controller = self.all_conf_data.get("head")
+        common.wait_ceph_to_health( user, controller )
+        self.benchmark = self.parse_benchmark_cases(testcase)
         self.load_parameter()
         self.get_runid()
         self.set_runid()
 
-        self.benchmark = self.parse_benchmark_cases(testcase)
         if not self.generate_benchmark_cases(self.benchmark):
             common.printout("ERROR", "Failed to generate Fio/cosbench configuration file.")
             sys.exit()
@@ -64,20 +67,19 @@ class Benchmark(object):
     def create_image(self, volume_count, volume_size, poolname):
         user =  self.cluster["user"]
         controller =  self.cluster["head"]
-        rbd_list = self.get_rbd_list()
+        rbd_list = self.get_rbd_list(poolname)
         need_to_create = 0
         if not len(rbd_list) >= int(volume_count):
             need_to_create = int(volume_count) - len(rbd_list)
         if need_to_create != 0:
             for i in range(0, need_to_create):
                 volume = 'volume-%s' % str(uuid.uuid4())
-                common.pdsh(user, [controller], "rbd create -p %s --size %s --image-format 2 %s" % (poolname, str(volume_size), volume))
+                common.pdsh(user, [controller], "rbd create -p %s --size %s %s --image-format 2" % (poolname, str(volume_size), volume))
             common.printout("LOG","%d RBD Image Created" % need_to_create)
 
-    def get_rbd_list(self):
+    def get_rbd_list(self, poolname):
         user =  self.cluster["user"]
         controller =  self.cluster["head"]
-        poolname = "rbd"
         stdout, stderr = common.pdsh(user, [controller], "rbd ls -p %s" % poolname, option="check_return")
         if stderr:
             common.printout("ERROR","unable get rbd list, return msg: %s" % stderr)
@@ -146,15 +148,15 @@ class Benchmark(object):
 
         #drop page cache
         user = self.cluster["user"]
-        time = int(self.benchmark["runtime"]) + int(self.benchmark["rampup"]) + self.cluster["run_time_extend"]
+        time_tmp = int(self.benchmark["runtime"]) + int(self.benchmark["rampup"]) + self.cluster["run_time_extend"]
         dest_dir = self.cluster["tmp_dir"]
         nodes = self.cluster["osd"]
         monitor_interval = self.cluster["monitoring_interval"]
         #nodes.extend(self.benchmark["distribution"].keys())
-        common.pdsh(user, nodes, "echo '%s' > /proc/sys/vm/drop_caches && sync" % self.cluster["cache_drop_level"])
+        common.pdsh(user, nodes, "sync && echo '%s' > /proc/sys/vm/drop_caches" % self.cluster["cache_drop_level"])
 
         #send command to ceph cluster
-        common.pdsh(user, nodes, "for i in `seq 1 %d`;do echo `date \"+%s\"` `ceph health` >> %s/`hostname`_ceph_health.txt; sleep %s;done" % (time/int(monitor_interval)+1, "%Y_%m_%d %H:%M:%S", dest_dir, monitor_interval), option="force")
+        common.pdsh(user, nodes, "for i in `seq 1 %d`;do echo `date \"+%s\"` `ceph health` >> %s/`hostname`_ceph_health.txt; sleep %s;done" % (time_tmp/int(monitor_interval)+1, "%Y_%m_%d %H:%M:%S", dest_dir, monitor_interval), option="force")
         common.pdsh(user, nodes, "ps aux | grep ceph-osd | grep -v 'grep' > %s/`hostname`_ps.txt" % (dest_dir))
         common.pdsh(user, nodes, "date > %s/`hostname`_process_log.txt" % (dest_dir))
         common.printout("LOG","Start system data collector under %s " % nodes)
@@ -163,9 +165,10 @@ class Benchmark(object):
         common.pdsh(user, nodes, "mpstat -P ALL %s > %s/`hostname`_mpstat.txt & echo `date +%s`' mpstat start' >> %s/`hostname`_process_log.txt"  % (monitor_interval, dest_dir, '%s', dest_dir))
         common.pdsh(user, nodes, "iostat -p ALL -dxm %s > %s/`hostname`_iostat.txt & echo `date +%s`' iostat start' >> %s/`hostname`_process_log.txt" % (monitor_interval, dest_dir, '%s', dest_dir))
         common.pdsh(user, nodes, "sar -A %s > %s/`hostname`_sar.txt & echo `date +%s`' sar start' >> %s/`hostname`_process_log.txt" % (monitor_interval, dest_dir, '%s', dest_dir))
+        common.pdsh(user, nodes, "ceph -v >> %s/`hostname`_ceph_version.txt" % (dest_dir))
         if "perfcounter" in self.cluster["collector"]:
             common.printout("LOG","Start perfcounter data collector under %s " % nodes)
-            common.pdsh(user, nodes, "echo `date +%s`' perfcounter start' >> %s/`hostname`_process_log.txt; for i in `seq 1 %d`; do find /var/run/ceph -name '*osd*asok' | while read path; do filename=`echo $path | awk -F/ '{print $NF}'`;res_file=%s/`hostname`_${filename}.txt; echo `ceph --admin-daemon $path perf dump`, >> ${res_file} & done; sleep %s; done; echo `date +%s`' perfcounter stop' >> %s/`hostname`_process_log.txt;" % ('%s', dest_dir, time, dest_dir, monitor_interval, '%s', dest_dir), option="force")
+            common.pdsh(user, nodes, "echo `date +%s`' perfcounter start' >> %s/`hostname`_process_log.txt; for i in `seq 1 %d`; do find /var/run/ceph -name '*osd*asok' | while read path; do filename=`echo $path | awk -F/ '{print $NF}'`;res_file=%s/`hostname`_${filename}.txt; echo `ceph --admin-daemon $path perf dump`, >> ${res_file} & done; sleep %s; done; echo `date +%s`' perfcounter stop' >> %s/`hostname`_process_log.txt;" % ('%s', dest_dir, time_tmp, dest_dir, monitor_interval, '%s', dest_dir), option="force")
         if "blktrace" in self.cluster["collector"]:
             for node in nodes:
                 common.printout("LOG","Start blktrace data collector under %s " % node)
@@ -173,8 +176,11 @@ class Benchmark(object):
                     common.pdsh(user, [node], "cd %s; blktrace -d %s -o `hostname`_osd_%s 2>&1 > %s/`hostname`_blktrace_%s.log" % (dest_dir, osd_dev, osd_dev.replace("/","_"), dest_dir, osd_dev.replace("/","_")), option="force")
                 for journal_dev in self.cluster[node]["journals"]:
                     common.pdsh(user, [node], "cd %s; blktrace -d %s -o `hostname`_journal_%s 2>&1 > %s/`hostname`_blktrace_%s.log" % (dest_dir, journal_dev, journal_dev.replace("/","_"), dest_dir, journal_dev.replace("/","_")), option="force")
+            common.printout("LOG","Sleep 15s due to high cpu utilization when blktrace finish")
+            time.sleep(15)
         if "fatrace" in self.cluster["collector"]:
             common.printout("LOG","Start fatrace data collector under %s " % nodes)
+            time.sleep(15)
             common.pdsh(user, nodes, "fatrace -o %s/`hostname`_fatrace.txt &" % (dest_dir))
         if "strace" in self.cluster["collector"]:
             common.printout("LOG","Start strace data collector under %s " % nodes)
@@ -206,7 +212,7 @@ class Benchmark(object):
 
         #2. send command to client
         nodes = self.benchmark["distribution"].keys()
-        common.pdsh(user, nodes, "for i in `seq 1 %d`;do echo `date \"+%s\"` `ceph health` >> %s/`hostname`_ceph_health.txt; sleep %s;done" % (time/int(monitor_interval)+1, "%Y_%m_%d %H:%M:%S", dest_dir, monitor_interval), option="force")
+        common.pdsh(user, nodes, "for i in `seq 1 %d`;do echo `date \"+%s\"` `ceph health` >> %s/`hostname`_ceph_health.txt; sleep %s;done" % (time_tmp/int(monitor_interval)+1, "%Y_%m_%d %H:%M:%S", dest_dir, monitor_interval), option="force")
         common.pdsh(user, nodes, "date > %s/`hostname`_process_log.txt" % (dest_dir))
         common.printout("LOG","Start system data collector under %s " % nodes)
         common.pdsh(user, nodes, "cat /proc/interrupts > %s/`hostname`_interrupts_start.txt; echo `date +%s`' interrupt start' >> %s/`hostname`_process_log.txt" % (dest_dir, '%s', dest_dir))
@@ -214,9 +220,10 @@ class Benchmark(object):
         common.pdsh(user, nodes, "mpstat -P ALL %s > %s/`hostname`_mpstat.txt & echo `date +%s`' mpstat start' >> %s/`hostname`_process_log.txt"  % (monitor_interval, dest_dir, '%s', dest_dir))
         common.pdsh(user, nodes, "iostat -p -dxm %s > %s/`hostname`_iostat.txt & echo `date +%s`' iostat start' >> %s/`hostname`_process_log.txt" % (monitor_interval, dest_dir, '%s', dest_dir))
         common.pdsh(user, nodes, "sar -A %s > %s/`hostname`_sar.txt & echo `date +%s`' sar start' >> %s/`hostname`_process_log.txt" % (monitor_interval, dest_dir, '%s', dest_dir))
+        common.pdsh(user, nodes, "ceph -v >> %s/`hostname`_ceph_version.txt" % (dest_dir))
         if "perfcounter" in self.cluster["collector"]:
             common.printout("LOG","Start perfcounter data collector under %s " % nodes)
-            common.pdsh(user, nodes, "echo `date +%s`' perfcounter start' >> %s/`hostname`_process_log.txt; for i in `seq 1 %d`; do find /var/run/ceph -name '*client*asok' | while read path; do filename=`echo $path | awk -F/ '{print $NF}'`;res_file=%s/`hostname`_${filename}.txt; echo `ceph --admin-daemon $path perf dump`, >> ${res_file} & done; sleep %s; done; echo `date +%s`' perfcounter stop' >> %s/`hostname`_process_log.txt;" % ('%s', dest_dir, time, dest_dir, monitor_interval, '%s', dest_dir), option="force")
+            common.pdsh(user, nodes, "echo `date +%s`' perfcounter start' >> %s/`hostname`_process_log.txt; for i in `seq 1 %d`; do find /var/run/ceph -name '*client*asok' | while read path; do filename=`echo $path | awk -F/ '{print $NF}'`;res_file=%s/`hostname`_${filename}.txt; echo `ceph --admin-daemon $path perf dump`, >> ${res_file} & done; sleep %s; done; echo `date +%s`' perfcounter stop' >> %s/`hostname`_process_log.txt;" % ('%s', dest_dir, time_tmp, dest_dir, monitor_interval, '%s', dest_dir), option="force")
 
     def archive(self):
         user = self.cluster["user"]
@@ -340,7 +347,7 @@ class Benchmark(object):
 
     def check_fio_pgrep(self, nodes, fio_node_num = 1, check_type="jobnum"):
         user =  self.cluster["user"]
-        stdout, stderr = common.pdsh(user, nodes, "pgrep fio", option = "check_return")
+        stdout, stderr = common.pdsh(user, nodes, "pgrep -x fio", option = "check_return")
         res = common.format_pdsh_return(stdout)
         if res != []:
             fio_running_job_num = 0

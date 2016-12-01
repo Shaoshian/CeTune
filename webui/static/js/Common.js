@@ -164,8 +164,17 @@ function CreateTableHTML_Benchmark(jsonObj){
     tableHtml += "</th>";
 
     tableHtml += "<th>";
+    tableHtml += "parameter";
+    tableHtml += "</th>";
+
+    tableHtml += "<th>";
     tableHtml += "Description";
     tableHtml += "</th>";
+
+    tableHtml += "<th>";
+    tableHtml += "additional_option";
+    tableHtml += "</th>";
+
 
     tableHtml += "</th>"
     tableHtml += "</tr>";
@@ -224,8 +233,42 @@ function CreateTableHTML_Benchmark(jsonObj){
         tableHtml += "</td>";
 
         tableHtml += "<td class='td_class' id='td_benchmark_id_"+index+"_10'>";
-        tableHtml += "<label id='label_benchmark_id_"+index+"_10'  class = 'label_class' onclick = 'Label_benchmark_Click("+index+" ,10,&quot;"+ val.description+"&quot;)'>" + val.description;
+        tableHtml += "<label id='label_benchmark_id_"+index+"_10'  class = 'label_class' onclick = 'Label_benchmark_Click("+index+" ,10,&quot;"+ val.parameter+"&quot;)'>" + val.parameter;
         tableHtml +=  "</label>";
+        tableHtml += "</td>";
+
+        tableHtml += "<td class='td_class' id='td_benchmark_id_"+index+"_11'>";
+        tableHtml += "<label id='label_benchmark_id_"+index+"_11'  class = 'label_class' onclick = 'Label_benchmark_Click("+index+" ,11,&quot;"+ val.description+"&quot;)'>" + val.description;
+        tableHtml +=  "</label>";
+        tableHtml += "</td>";
+
+        tableHtml += "<td class='td_class' id='td_benchmark_id_"+index+"_12'>";
+        tableHtml += "<label style='display:none;'>"+index+"</label>";
+        if(val.additional_option == "restart"){
+            tableHtml += "<select name='select' id='additional_option_dropdown_"+index+"' class='form-control' value='restart' onchange='Additional_option_change()'>";
+            tableHtml += "<option>NULL</option>";
+            tableHtml += "<option selected>restart</option>";
+            tableHtml += "<option>redeploy</option>";
+        }
+        if(val.additional_option == "redeploy"){
+            tableHtml += "<select name='select' id='additional_option_dropdown_"+index+"' class='form-control' value='redeploy' onchange='Additional_option_change()'>";
+            tableHtml += "<option>NULL</option>";
+            tableHtml += "<option>restart</option>";
+            tableHtml += "<option selected>redeploy</option>";
+        }
+        if(val.additional_option == "NULL"){
+            tableHtml += "<select name='select' id='additional_option_dropdown_"+index+"' class='form-control' value='null' onchange='Additional_option_change()'>";
+            tableHtml += "<option selected>NULL</option>";
+            tableHtml += "<option>restart</option>";
+            tableHtml += "<option>redeploy</option>";
+        }
+        if(val.additional_option == ""){
+            tableHtml += "<select name='select' id='additional_option_dropdown_"+index+"' class='form-control' value='null' onchange='Additional_option_change()'>";
+            tableHtml += "<option selected>NULL</option>";
+            tableHtml += "<option>restart</option>";
+            tableHtml += "<option>redeploy</option>";
+        }
+        tableHtml += "</select>"
         tableHtml += "</td>";
 
         tableHtml += "</tr>";
@@ -233,7 +276,8 @@ function CreateTableHTML_Benchmark(jsonObj){
     });
 
     tableHtml += "</tbody>";
-    tableHtml += "</table>"
+    tableHtml += "</table>";
+    tableHtml += "<div><li class='error'>If case start with '#',workflow will not running this cases.</li></div>";
     return tableHtml;
 }
 
@@ -283,7 +327,7 @@ function Ok_Apply(rowNum){
         $("#td_value_id_"+rowNum).removeClass("error");
         $("#td_value_id_"+rowNum).parent().children().eq(3).children("label").text("");
     }
-    if(result.addition!=undefined){
+    if(result.check != false){
         $.each(result.addition, function(index, value){
             Append_Row_to_Configuration(value)
         });
@@ -300,6 +344,12 @@ function Cancel_Apply(rowNum,value){
     otd.innerHTML =" <label id='label_id_"+rowNum+"' class = 'label_class' onclick='Label_Click("+rowNum+",&quot;"+ value+"&quot;)' >"+ value +"</label>";
 }
 //------------------------------------------------------------------------------------------------------
+//radio button click opertion
+function Additional_option_change(){
+    Submit_Benchmark();
+    CheckTableDataError();
+}
+
 //label click opertion
 function Label_benchmark_Click(rowNum , colNum , value){
     olabel = document.getElementById("label_benchmark_id_" + rowNum + "_" + colNum);
@@ -350,10 +400,12 @@ function Del(tableType){
             }
         });
     }
-//-------------------------
+//------------------------
     else if(tableType =="benchmark"){
+        var rowNum;
         $(".checkbox_benchmark_class").each(function(index,value){
             if($(this).is(':checked')){
+                rowNum = index;
                 $(this).parent().parent().remove(); 
             }
         });
@@ -415,6 +467,83 @@ function DeleteModal_OK(type){
   setTimeout(function(){$("#DeleteBenchmarkModal").modal("hide")},100);
 }
 
+function Select_Value(){
+    var _example_list = [
+        ['140','10g','seqwrite,seqread,randwrite,randread,readwrite,randrw','4k','64','100','400','rbd','librados_4MB_write','restart,redeploy'],
+        ['140','10g','seqwrite,seqread,randwrite,randread,readwrite,randrw','4k','64','100','400','rbd','librados_4MB_write','restart,redeploy'],
+        ['0(use 0 to initialize container) and 160(as worker)','r(1,100)','write, read','128KB','r(1,100)','100','400','','librados_4MB_write','restart,redeploy'],
+        ['140','10g','seqwrite,seqread,randwrite,randread,readwrite,randrw','4k','64','100','400','','librados_4MB_write','restart,redeploy'],
+        [' ',' ',' ',' ',' ',' ','400','','librados_4MB_write','restart,redeploy'],
+        ['50','30g','seqwrite,seqread,randwrite,randread,readwrite,randrw','8k','32','30','120','width=10,depth=1,files=10000,threads=16,rdpct=65','librados_4MB_write','restart,redeploy']]
+    var select_value = document.getElementById("recipient_benchmark_engine");
+    var item = 0
+    if(select_value.value == "qemurbd"){
+        item = 0;
+    }
+    if(select_value.value == "fiorbd"){
+        item = 1;
+    }
+    if(select_value.value == "cosbench"){
+        item = 2;
+    }
+    if(select_value.value == "generic"){
+        item = 3;
+    }
+    if(select_value.value == "hook"){
+        item = 4;
+    }
+    if(select_value.value == "vdbench"){
+        item = 5;
+    }
+    var readonly = false;
+    if(select_value.value == "hook"){
+        readonly = true;
+        document.getElementById("recipient_worker").value = "0";
+        document.getElementById("recipient_container_size").value = "0";
+        document.getElementById("recipient_io_pattern").value = "0";
+        document.getElementById("recipient_block_size").value = "0";
+        document.getElementById("recipient_work_depth").value = "0";
+        document.getElementById("recipient_ramup_time").value = "0";
+    }
+    document.getElementById("recipient_parameter").value = "";
+    document.getElementById('recipient_parameter').readOnly=true;
+    document.getElementById('recipient_worker').readOnly=readonly;
+    document.getElementById('recipient_container_size').readOnly=readonly;
+    document.getElementById('recipient_io_pattern').readOnly=readonly;
+    document.getElementById('recipient_block_size').readOnly=readonly;
+    document.getElementById('recipient_work_depth').readOnly=readonly;
+    document.getElementById('recipient_ramup_time').readOnly=readonly;
+    if(select_value.value == "vdbench"){
+        document.getElementById("recipient_parameter").value = "width=10,depth=1,files=10000,threads=16,rdpct=65";
+        document.getElementById('recipient_parameter').readOnly=false;
+    }
+    if(select_value.value == "fiorbd" || select_value.value == "qemurbd"){
+        document.getElementById("recipient_parameter").value = "rbd";
+        document.getElementById('recipient_parameter').readOnly=false;
+    }
+    document.getElementById("additional_option_select").value = 'restart';
+    var worker = document.getElementById("worker");
+    worker.innerHTML ="example: "+ _example_list[item][0]
+    var container_size = document.getElementById("container_size");
+    container_size.innerHTML = "example: "+ _example_list[item][1]
+    var iopattern = document.getElementById("iopattern");
+    iopattern.innerHTML = "example: "+ _example_list[item][2]
+    var opsize = document.getElementById("opsize");
+    opsize.innerHTML = "example: "+ _example_list[item][3]
+    var object_size_QD = document.getElementById("object_size_QD");
+    object_size_QD.innerHTML = "example: "+ _example_list[item][4]
+    var rampup = document.getElementById("rampup");
+    rampup.innerHTML = "example: "+ _example_list[item][5]
+    var runtime = document.getElementById("runtime");
+    runtime.innerHTML = "example: "+ _example_list[item][6]
+    var parameter = document.getElementById("Parameter");
+    parameter.innerHTML = "example: "+ _example_list[item][7]
+    var Tag_Description = document.getElementById("Tag_Description");
+    Tag_Description.innerHTML = "example: "+ _example_list[item][8]
+    var additional_option = document.getElementById("additional_option_label");
+    additional_option.innerHTML = "example: "+ _example_list[item][9]
+}
+
 function ConfigurationModal_OK(key, value, dsc){
     key = $("#recipient-key").val();
     value = $("#recipient-value").val();
@@ -472,19 +601,45 @@ function Append_Row_to_Configuration(params){
     $("table.table_class tr:nth-child(odd)").addClass("altrow");
 }
 
+function CheckInput(key="",value=""){
+    var chk_result = 'true';
+    if(value !== ""){
+        if(key == "parameter"){
+            var paras = value.split(",");
+            for(var i=0;i<paras.length;i++){
+                if(paras[i].split('=').length !== 2){
+                    alert('Error:parameter is invalid ! please check it again!')
+                    chk_result = 'false'
+                }
+            }
+        }
+    }
+    return chk_result
+}
+
 function BenchMarkModel_OK(){
 
     var rows =  GetTableRowsCount("table_benchmark_id")-1;
 
-    var benchmark_driver = $("#recipient-benchmark_engine").val();
-    var worker = $("#recipient-worker").val();
-    var container_size = $("#recipient-container_size").val();
-    var iopattern = $("#recipient-io_pattern").val();
-    var op_size = $("#recipient-block_size").val();
-    var object_size = $("#recipient-work_depth").val();
-    var rampup = $("#recipient-ramup_time").val();
-    var runtime = $("#recipient-run_time").val();
-    var desc = $("#recipient-desc").val();
+    var benchmark_driver = $("#recipient_benchmark_engine").val();
+    //var worker = $("#recipient-worker").val();
+    var worker = document.getElementById("recipient_worker").value;
+    //var container_size = $("#recipient-container_size").val();
+    var container_size = document.getElementById("recipient_container_size").value;
+    //var iopattern = $("#recipient-io_pattern").val();
+    var iopattern = document.getElementById("recipient_io_pattern").value;
+    //var op_size = $("#recipient-block_size").val();
+    var op_size = document.getElementById("recipient_block_size").value;
+    //var object_size = $("#recipient-work_depth").val();
+    var object_size = document.getElementById("recipient_work_depth").value;
+    //var rampup = $("#recipient-ramup_time").val();
+    var rampup = document.getElementById("recipient_ramup_time").value;
+    //var runtime = $("#recipient-run_time").val();
+    var runtime = document.getElementById("recipient_run_time").value;
+    var parameter = document.getElementById("recipient_parameter").value;
+    //var desc = $("#recipient-desc").val();
+    var desc = document.getElementById("recipient_desc").value;
+    var additional_option = document.getElementById("additional_option_select").value;
     if(benchmark_driver == "qemurbd")
         device = "/dev/vdb"
     if(benchmark_driver == "fiorbd")
@@ -493,58 +648,95 @@ function BenchMarkModel_OK(){
         device = "cosbench"
     if(benchmark_driver == "generic")
         device = "generic"
+    if(benchmark_driver == "vdbench")
+        device = "/dev/vdb"
     if(benchmark_driver == "hook")
         device = "hook"
+    //if(CheckInput('parameter',parameter) == "true"){
+    if(CheckInput() == "true"){
 
-    if(benchmark_driver == "" || worker== "" ||container_size  == "" || iopattern == "" || op_size == "" ||
-        object_size == "" || rampup == "" || runtime == "" || device == "" ){
-        $("#div_benchmark_message_div").show();
-    }else{
-        //$("#ModalLabel_Benchmark_Add").html("Add a new row for configuration");
-        $("#div_configuration_message_div").hide();
-        setTimeout(function(){$("#BenchmarkModel").modal("hide")},100);
-        var html = "<tr>";
+        if(benchmark_driver == "" || worker== "" ||container_size  == "" || iopattern == "" || op_size == "" ||
+            object_size == "" || rampup == "" || runtime == "" || device == "" ){
+            $("#div_benchmark_message_div").show();
+        }else{
+            //$("#ModalLabel_Benchmark_Add").html("Add a new row for configuration");
+            $("#div_configuration_message_div").hide();
+            setTimeout(function(){$("#BenchmarkModel").modal("hide")},100);
+            var html = "<tr>";
 
-        html +="<td class='checkbox_td_class'>";
-        html +="<input type='checkbox' class = 'checkbox_benchmark_class' id='checkbox_benchmark_id'+ "+rows+" name='checkbox'>";
-        html +="</td>";
+            html +="<td class='checkbox_td_class'>";
+            html +="<input type='checkbox' class = 'checkbox_benchmark_class' id='checkbox_benchmark_id'+ "+rows+" name='checkbox'>";
+            html +="</td>";
 
-        var index = rows
-        html += "<td class='td_value_class'  id='td_benchmark_id_"+index+"_1'>";
-        html +="<label id = 'label_benchmark_id_"+rows+"_1' class='label_class' onclick='Label_benchmark_Click("+rows+",1,&quot;"+ benchmark_driver+"&quot;)'>"+ benchmark_driver +"</label>";
-        html +="</td>";
-        html += "<td class='td_value_class'  id='td_benchmark_id_"+index+"_2'>";
-        html +="<label id = 'label_benchmark_id_"+rows+"_2' class='label_class' onclick='Label_benchmark_Click("+rows+",2,&quot;"+ worker+"&quot;)'>"+ worker +"</label>";
-        html +="</td>";
-        html += "<td class='td_value_class'  id='td_benchmark_id_"+index+"_3'>";
-        html +="<label id = 'label_benchmark_id_"+rows+"_3' class='label_class' onclick='Label_benchmark_Click("+rows+",3,&quot;"+ container_size+"&quot;)'>"+ container_size +"</label>";
-        html +="</td>";
-        html += "<td class='td_value_class'  id='td_benchmark_id_"+index+"_4'>";
-        html +="<label id = 'label_benchmark_id_"+rows+"_4' class='label_class' onclick='Label_Click("+rows+",4,&quot;"+ iopattern+"&quot;)'>"+ iopattern +"</label>";
-        html +="</td>";
-        html += "<td class='td_value_class' id='td_benchmark_id_"+index+"_5'>";
-        html +="<label id = 'label_benchmark_id_"+rows+"_5' class='label_class' onclick='Label_benchmark_Click("+rows+",5,&quot;"+ op_size+"&quot;)'>"+ op_size +"</label>";
-        html +="</td>";
-        html += "<td class='td_value_class' id='td_benchmark_id_"+index+"_6'>";
-        html +="<label id = 'label_id_"+rows+"_6' class='label_class' onclick='Label_benchmark_Click("+rows+",6,&quot;"+ object_size+"&quot;)'>"+ object_size +"</label>";
-        html +="</td>";
-        html += "<td class='td_value_class' id='td_benchmark_id_"+index+"_7'>";
-        html +="<label id = 'label_benchmark_id_"+rows+"_7' class='label_class' onclick='Label_benchmark_Click("+rows+",7,&quot;"+ rampup+"&quot;)'>"+ rampup +"</label>";
-        html +="</td>";
-        html += "<td class='td_value_class' id='td_benchmark_id_"+index+"_8'>";
-        html +="<label id = 'label_benchmark_id_"+rows+"_8' class='label_class' onclick='Label_benchmark_Click("+rows+",8,&quot;"+ runtime+"&quot;)'>"+ runtime +"</label>";
-        html +="</td>";
-        html += "<td class='td_value_class' id='td_benchmark_id_"+index+"_9'>";
-        html +="<label id = 'label_benchmark_id_"+rows+"_9' class='label_class' onclick='Label_benchmark_Click("+rows+",9,&quot;"+ device+"&quot;)'>"+ device +"</label>";
-        html +="</td>";
-        html += "<td class='td_value_class' id='td_benchmark_id_"+index+"_10'>";
-        html +="<label id = 'label_benchmark_id_"+rows+"_10' class='label_class' onclick='Label_benchmark_Click("+rows+",10,&quot;"+ desc+"&quot;)'>"+ desc +"</label>";
-        html +="</td>";
+            var index = rows
+            html += "<td class='td_value_class'  id='td_benchmark_id_"+index+"_1'>";
+            html +="<label id = 'label_benchmark_id_"+rows+"_1' class='label_class' onclick='Label_benchmark_Click("+rows+",1,&quot;"+ benchmark_driver+"&quot;)'>"+ benchmark_driver +"</label>";
+            html +="</td>";
+            html += "<td class='td_value_class'  id='td_benchmark_id_"+index+"_2'>";
+            html +="<label id = 'label_benchmark_id_"+rows+"_2' class='label_class' onclick='Label_benchmark_Click("+rows+",2,&quot;"+ worker+"&quot;)'>"+ worker +"</label>";
+            html +="</td>";
+            html += "<td class='td_value_class'  id='td_benchmark_id_"+index+"_3'>";
+            html +="<label id = 'label_benchmark_id_"+rows+"_3' class='label_class' onclick='Label_benchmark_Click("+rows+",3,&quot;"+ container_size+"&quot;)'>"+ container_size +"</label>";
+            html +="</td>";
+            html += "<td class='td_value_class'  id='td_benchmark_id_"+index+"_4'>";
+            html +="<label id = 'label_benchmark_id_"+rows+"_4' class='label_class' onclick='Label_Click("+rows+",4,&quot;"+ iopattern+"&quot;)'>"+ iopattern +"</label>";
+            html +="</td>";
+            html += "<td class='td_value_class' id='td_benchmark_id_"+index+"_5'>";
+            html +="<label id = 'label_benchmark_id_"+rows+"_5' class='label_class' onclick='Label_benchmark_Click("+rows+",5,&quot;"+ op_size+"&quot;)'>"+ op_size +"</label>";
+            html +="</td>";
+            html += "<td class='td_value_class' id='td_benchmark_id_"+index+"_6'>";
+            html +="<label id = 'label_id_"+rows+"_6' class='label_class' onclick='Label_benchmark_Click("+rows+",6,&quot;"+ object_size+"&quot;)'>"+ object_size +"</label>";
+            html +="</td>";
+            html += "<td class='td_value_class' id='td_benchmark_id_"+index+"_7'>";
+            html +="<label id = 'label_benchmark_id_"+rows+"_7' class='label_class' onclick='Label_benchmark_Click("+rows+",7,&quot;"+ rampup+"&quot;)'>"+ rampup +"</label>";
+            html +="</td>";
+            html += "<td class='td_value_class' id='td_benchmark_id_"+index+"_8'>";
+            html +="<label id = 'label_benchmark_id_"+rows+"_8' class='label_class' onclick='Label_benchmark_Click("+rows+",8,&quot;"+ runtime+"&quot;)'>"+ runtime +"</label>";
+            html +="</td>";
+            html += "<td class='td_value_class' id='td_benchmark_id_"+index+"_9'>";
+            html +="<label id = 'label_benchmark_id_"+rows+"_9' class='label_class' onclick='Label_benchmark_Click("+rows+",9,&quot;"+ device+"&quot;)'>"+ device +"</label>";
+            html +="</td>";
+            html += "<td class='td_value_class' id='td_benchmark_id_"+index+"_10'>";
+            html +="<label id = 'label_benchmark_id_"+rows+"_10' class='label_class' onclick='Label_benchmark_Click("+rows+",10,&quot;"+ parameter+"&quot;)'>"+ parameter +"</label>";
+            html +="</td>";
+            html += "<td class='td_value_class' id='td_benchmark_id_"+index+"_11'>";
+            html +="<label id = 'label_benchmark_id_"+rows+"_11' class='label_class' onclick='Label_benchmark_Click("+rows+",11,&quot;"+ desc+"&quot;)'>"+ desc +"</label>";
+            html +="</td>";
 
-        html += "<tr>";
+            html += "<td class='td_class' id='td_benchmark_id_"+index+"_12'>";
+            html += "<label style='display:none;'>"+index+"</label>";
+            if(additional_option == "restart"){
+                html += "<select name='select' id='additional_option_dropdown_"+index+"' class='form-control' value='restart' onchange='Additional_option_change()'>";
+                html += "<option>null</option>";
+                html += "<option selected>restart</option>";
+                html += "<option>redeploy</option>";
+            }
+            if(additional_option == "redeploy"){
+                html += "<select name='select' id='additional_option_dropdown_"+index+"' class='form-control' value='redeploy' onchange='Additional_option_change()'>";
+                html += "<option>null</option>";
+                html += "<option>restart</option>";
+                html += "<option selected>redeploy</option>";
+            }
+            if(additional_option == "null"){
+                html += "<select name='select' id='additional_option_dropdown_"+index+"' class='form-control' value='null' onchange='Additional_option_change()'>";
+                html += "<option selected>null</option>";
+                html += "<option>restart</option>";
+                html += "<option>redeploy</option>";
+            }
+            if(additional_option == ""){
+                html += "<select name='select' id='additional_option_dropdown_"+index+"' class='form-control' value='null' onchange='Additional_option_change()'>";
+                html += "<option selected>null</option>";
+                html += "<option>restart</option>";
+                html += "<option>redeploy</option>";
+            }
+            html += "</select>"
+            html +="</td>";
 
-        $("#table_benchmark_id").append(html); 
-        Submit_Benchmark();
+            html += "<tr>";
+
+            $("#table_benchmark_id").append(html); 
+            Submit_Benchmark();
+        }
     }
 }
 
@@ -552,7 +744,7 @@ function Submit_Benchmark(){
     var post_json = {}//set_config?request_type=testcase &key=testcase &value=  
     var table_data= [];
 
-    var benchmark_driver,worker,container_size,io_pattern,block_size,work_depth,ramup_time,run_time,device,desc;
+    var benchmark_driver,worker,container_size,io_pattern,block_size,work_depth,ramup_time,run_time,device,parameter,desc;
 
     $(".checkbox_benchmark_class").each(function(){
         benchmark_driver = $(this).parent().parent().children().eq(1).children("label").text();
@@ -564,7 +756,11 @@ function Submit_Benchmark(){
         rampup = $(this).parent().parent().children().eq(7).children("label").text();
         runtime = $(this).parent().parent().children().eq(8).children("label").text();
         device = $(this).parent().parent().children().eq(9).children("label").text();
-        desc = $(this).parent().parent().children().eq(10).children("label").text();
+        parameter = $(this).parent().parent().children().eq(10).children("label").text();
+        desc = $(this).parent().parent().children().eq(11).children("label").text();
+        var additional = '';
+        var rowid = $(this).parent().parent().children().eq(12).children().eq(0).text();
+        additional = document.getElementById("additional_option_dropdown_"+rowid).value;
 
         var data ={}; 
         data.benchmark_driver = benchmark_driver;
@@ -576,8 +772,10 @@ function Submit_Benchmark(){
         data.rampup = rampup;
         data.runtime = runtime;
         data.device = device;
+        data.parameter = parameter;
         data.desc = desc;
-
+        if(additional == "null"){data.additional_option="";}
+        else{data.additional_option = additional;}
         table_data.push(data);
     });
 

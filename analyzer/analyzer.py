@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*
 import os,sys
 import argparse
 lib_path = os.path.abspath(os.path.join('..'))
@@ -17,6 +18,7 @@ import copy
 pp = pprint.PrettyPrinter(indent=4)
 class Analyzer:
     def __init__(self, dest_dir):
+        self.dest_dir = dest_dir
         self.cluster = {}
         if os.path.isdir('%s/%s' % ( dest_dir, 'conf' )):
             self.cluster["dest_conf_dir"] = '%s/%s' % ( dest_dir, 'conf' )
@@ -53,7 +55,26 @@ class Analyzer:
         self.result["status"] = self.getStatus()
         self.result["description"] = self.getDescription()
 
+    def collect_node_ceph_version(self,dest_dir):
+        node_list = []
+        node_list.extend(self.cluster["osds"])
+        node_list.append(self.cluster["head"])
+        version_list = {}
+        for node in node_list:
+            if os.path.exists(os.path.join(dest_dir,node,node+'_ceph_version.txt')):
+                data = open(os.path.join(dest_dir,node,node+'_ceph_version.txt'),'r')
+                if data:
+                    version_list[node] = data.read().strip('\n')
+                else:
+                    version_list[node] = 'None'
+            else:
+                version_list[node] = 'None'
+        return version_list
+
     def process_data(self):
+        case_type = re.findall('\d\-\S+', self.cluster["dest_dir"])[0].split('-')[2]
+        if case_type == "vdbench":
+            self.result["description"] = "Description:"+ str(self.getDescription()) +"  Parameters:"+ str(self.getParameters())
         user = self.cluster["user"]
         dest_dir = self.cluster["dest_dir"]
         session_name = self.cluster["dest_dir_root"].split('/')
@@ -109,6 +130,11 @@ class Analyzer:
         result = self.format_result_for_visualizer( self.result )
         result = self.summary_result( result )
         result["summary"]["Download"] = {"Configuration":{"URL":"<button class='cetune_config_button' href='../results/get_detail_zip?session_name=%s&detail_type=conf'><a>Click TO Download</a></button>" % self.result["session_name"]}}
+        node_ceph_version = {}
+        if self.collect_node_ceph_version(dest_dir):
+            for key,value in self.collect_node_ceph_version(dest_dir).items():
+                node_ceph_version[key] = {"ceph_version":value}
+        result["summary"]["Node"] = node_ceph_version
         dest_dir = self.cluster["dest_dir_root"]
         common.printout("LOG","Write analyzed results into result.json")
         with open('%s/result.json' % dest_dir, 'w') as f:
@@ -173,9 +199,33 @@ class Analyzer:
 
         return output_sort
 
+    def get_execute_time(self):
+        dest_dir = self.dest_dir
+        cf = config.Config(dest_dir+"/conf/all.conf")
+        head = ''
+        head = cf.get("head")
+        file_path = os.path.join(dest_dir,"raw",head,head+"_process_log.txt")
+        if head != '':
+            if os.path.exists(os.path.join(dest_dir,"raw",head)):
+                for file_path in os.listdir(os.path.join(dest_dir,"raw",head)):
+                    if file_path.endswith("_process_log.txt"):
+                        with open("%s/%s" % (os.path.join(dest_dir,"raw",head),file_path), "r") as f:
+                            lines = f.readlines()
+                if len(lines) != 0 and lines != None:
+                    str_time = ''
+                    try:
+                        str_time = lines[0].replace('CST ','')
+                        str_time = str_time.replace('\n','')
+                        str_time = time.strftime("%Y-%m-%d %H:%M:%S",time.strptime(str_time))
+                    except:
+                        pass
+                    return str_time
+            else:
+                return ''
+
     def summary_result(self, data):
         # generate summary
-        benchmark_tool = ["fio", "cosbench"]
+        benchmark_tool = ["fio", "cosbench", "vdbench"]
         data["summary"]["run_id"] = {}
         res = re.search('^(\d+)-(\w+)-(\w+)-(\w+)-(\w+)-(\w+)-(\w+)-(\d+)-(\d+)-(\w+)$',data["session_name"])
         if not res:
@@ -183,6 +233,7 @@ class Analyzer:
             return data
         data["summary"]["run_id"][res.group(1)] = OrderedDict()
         tmp_data = data["summary"]["run_id"][res.group(1)]
+        tmp_data["Timestamp"] = self.get_execute_time()
         tmp_data["Status"] = data["status"]
         tmp_data["Description"] = data["description"]
         tmp_data["Op_size"] = res.group(5)
@@ -244,12 +295,11 @@ class Analyzer:
         write_SN_IOPS = 0
         write_SN_BW = 0
         write_SN_Latency = 0
-	diskformat = common.parse_disk_format( self.cluster['diskformat'] )
+        diskformat = common.parse_disk_format( self.cluster['diskformat'] )
         if len(diskformat):
             typename = diskformat[0]
         else:
             typename = "osd"
-        
         for node, node_data in data["ceph"][typename].items():
             osd_node_count += 1
             read_SN_IOPS += numpy.mean(node_data["r/s"])*int(node_data["disk_num"])
@@ -302,6 +352,8 @@ class Analyzer:
                 workload_result.update(self.process_cosbench_data("%s/%s/%s" %(dest_dir, node_name, dir_name), dir_name))
             if '_sar.txt' in dir_name:
                 result.update(self.process_sar_data("%s/%s/%s" % (dest_dir, node_name, dir_name)))
+            if 'totals.html' in dir_name:
+                workload_result.update(self.process_vdbench_data("%s/%s/%s" % (dest_dir, node_name, dir_name), "%s_%s" % (node_name, dir_name)))
             if '_fio.txt' in dir_name:
                 workload_result.update(self.process_fio_data("%s/%s/%s" % (dest_dir, node_name, dir_name), dir_name))
             if '_fio_iops.1.log' in dir_name or '_fio_bw.1.log' in dir_name or '_fio_lat.1.log' in dir_name:
@@ -319,6 +371,11 @@ class Analyzer:
             if '_iostat.txt' in dir_name:
                 res = self.process_iostat_data( node_name, "%s/%s/%s" % (dest_dir, node_name, dir_name))
                 result.update(res)
+            if '_interrupts_end.txt' in dir_name:
+                if os.path.exists("%s/%s/%s" % (dest_dir, node_name, dir_name.replace('end','start'))):
+                    interrupt_start = "%s/%s/%s" % (dest_dir, node_name, dir_name)
+                    interrupt_end   = "%s/%s/%s" % (dest_dir, node_name, dir_name.replace('end','start'))
+                    self.interrupt_diff(dest_dir,node_name,interrupt_start,interrupt_end)
             if '_process_log.txt' in dir_name:
                 res = self.process_log_data( "%s/%s/%s" % (dest_dir, node_name, dir_name) )
                 result.update(res)
@@ -339,6 +396,65 @@ class Analyzer:
             tmp = f.read()
         output.update(json.loads(tmp, object_pairs_hook=OrderedDict))
         return output
+
+    def interrupt_diff(self,dest_dir,node_name,s_path,e_path):
+        s_p = s_path
+        e_p = e_path
+        result_name = node_name+'_interrupt.txt'
+        result_path = os.path.join(dest_dir.replace('raw','conf'),result_name)
+        s_l = []
+        e_l = []
+        diff_list = []
+        with open(s_p, 'r') as f:
+            s = f.readlines()
+        with open(e_p, 'r') as f:
+            e = f.readlines()
+        for i in s:
+            tmp = []
+            tmp = i.split(' ')
+            while '' in tmp:
+                tmp.remove('')
+            s_l.append(tmp)
+        for i in e:
+            tmp = []
+            tmp = i.split(' ')
+            while '' in tmp:
+                tmp.remove('')
+            e_l.append(tmp)
+        if self.check_interrupt(s_l,e_l):
+            for i in range(len(s_l)):
+                lines = []
+                for j in range(len(s_l[i])):
+                    if s_l[i][j].isdigit() and e_l[i][j].isdigit():
+                        diff_value = int(e_l[i][j]) - int(s_l[i][j])
+                        lines.append(int(e_l[i][j]) - int(s_l[i][j]))
+                    else:
+                        lines.append(e_l[i][j])
+                diff_list.append(lines)
+            if os.path.exists(result_path):
+                os.remove(result_path)
+            output = open(result_path,'w+')
+            for line in diff_list:
+                line_str = ''
+                for col in range(len(line)):
+                    if col != len(line)-1:
+                        line_str += str(line[col])+'    '
+                    else:
+                        line_str += str(line[col])
+                output.writelines(line_str)
+            output.close()
+        else:
+            print 'ERROR: interrupt_start lines and interrupt_end lines are diffrent ! can not calculate diffrent value!'
+
+    def check_interrupt(self,s_inter,e_inter):
+        result = "True"
+        if len(s_inter)!=len(e_inter):
+            result = "False"
+        else:
+            for i in range(len(s_inter)):
+                if len(s_inter[i])!=len(e_inter[i]):
+                    result = "False"
+        return result
 
     def process_log_data(self, path):
         result = {}
@@ -425,6 +541,16 @@ class Analyzer:
             pass
         return status
 
+    def getParameters(self):
+        dest_dir = self.cluster["dest_conf_dir"]
+        ps = ""
+        try:
+            with open("%s/vdbench_params.txt" % dest_dir.replace("raw","conf"), 'r') as f:
+                ps = f.read()
+        except:
+            pass
+        return ps
+
     def getDescription(self):
         dest_dir = self.cluster["dest_conf_dir"]
         desc = ""
@@ -453,14 +579,14 @@ class Analyzer:
                 data = line.split(",")
                 timestamp_sec = int(data[0])/time_shift
                 value = int(data[1])
-                while ( timestamp_sec > (cur_sec + 1) ):
-                    res.append( 0 )
-                    cur_sec += 1
-                if (cur_sec + 1) == timestamp_sec:
-                    res.append( value )
-                    cur_sec += 1
-                elif cur_sec == timestamp_sec:
-                    res[-1] = (res[-1] + value)/2
+                if timestamp_sec > cur_sec:
+                    if cur_sec >= 0:
+                        res.append(numpy.mean(tmp_res))
+                    tmp_res = []
+                    cur_sec = timestamp_sec
+                tmp_res.append( value )
+            if len(tmp_res) != 0:
+                res.append(numpy.mean(tmp_res))
         return result
 
 
@@ -483,14 +609,18 @@ class Analyzer:
     def process_iostat_data(self, node, path):
         result = {}
         output_list = []
-	dict_diskformat = {}
+        dict_diskformat = {}
         if node in self.cluster["osds"]:
             output_list = common.parse_disk_format( self.cluster['diskformat'] )
-	    for i in range(len(output_list)):
-		disk_list=[]
+            for i in range(len(output_list)):
+                disk_list=[]
                 for osd_journal in common.get_list(self.all_conf_data.get_list(node)): 
-		   disk_list.append(osd_journal[i].split('/')[2])
-		dict_diskformat[output_list[i]]=disk_list
+                   tmp_dev_name = osd_journal[i].split('/')[2]
+                   if 'nvme' in tmp_dev_name:
+                       tmp_dev_name = common.parse_nvme( tmp_dev_name )
+                   if tmp_dev_name not in disk_list:
+                       disk_list.append( tmp_dev_name )
+                dict_diskformat[output_list[i]]=disk_list
         elif node in self.cluster["vclient"]:
             vdisk_list = []
             for disk in self.cluster["vclient_disk"]:
@@ -499,21 +629,61 @@ class Analyzer:
         # get total second
         runtime = common.bash("grep 'Device' "+path+" | wc -l ").strip()
         for output in output_list:
-	    if output != "vdisk":
-		disk_list = " ".join(dict_diskformat[output])
-		disk_num = len(dict_diskformat[output])
-	    else:
-		disk_list = " ".join(vdisk_list)
+            if output != "vdisk":
+                disk_list = " ".join(dict_diskformat[output])
+                disk_num = len(list(set(dict_diskformat[output])))
+            else:
+                disk_list = " ".join(vdisk_list)
                 disk_num = len(vdisk_list)
             stdout = common.bash( "grep 'Device' -m 1 "+path+" | awk -F\"Device:\" '{print $2}'; cat "+path+" | awk -v dev=\""+disk_list+"\" -v line="+runtime+" 'BEGIN{split(dev,dev_arr,\" \");dev_count=0;for(k in dev_arr){count[k]=0;dev_count+=1};for(i=1;i<=line;i++)for(j=1;j<=NF;j++){res_arr[i,j]=0}}{for(k in dev_arr)if(dev_arr[k]==$1){cur_line=count[k];for(j=2;j<=NF;j++){res_arr[cur_line,j]+=$j;}count[k]+=1;col=NF}}END{for(i=1;i<=line;i++){for(j=2;j<=col;j++)printf (res_arr[i,j]/dev_count)\"\"FS; print \"\"}}'")
             result[output] = common.convert_table_to_2Dlist(stdout)
             result[output]["disk_num"] = disk_num
-	#di = result["osd"]
         return result
+
+    def process_vdbench_data(self, path, dirname):
+        result = {}
+        vdbench_data = {}
+        runtime = int(common.bash("grep -o 'elapsed=[0-9]\+' "+path+" | cut -d = -f 2"))
+        stdout, stderr = common.bash("grep 'avg_2-' "+path, True)
+        vdbench_data = stdout.split()
+        output_vdbench_data = OrderedDict()
+        output_vdbench_data['read_lat'] = vdbench_data[8]
+        output_vdbench_data["read_iops"] = vdbench_data[7]
+        output_vdbench_data["read_bw"] = vdbench_data[11]
+        output_vdbench_data['read_runtime'] = runtime
+        output_vdbench_data['write_lat'] = vdbench_data[10]
+        output_vdbench_data["write_iops"] = vdbench_data[9]
+        output_vdbench_data["write_bw"] = vdbench_data[12]
+        output_vdbench_data['write_runtime'] = runtime
+        output_vdbench_data['lat_unit'] = 'msec'
+        output_vdbench_data['runtime_unit'] = 'sec'
+        output_vdbench_data['bw_unit'] = 'MB/s'
+        result[dirname] = {}
+        result[dirname]["vdbench"] = output_vdbench_data
+        return result
+
+    def get_lat_persent_dict(self,fio_str):
+        lat_percent_dict = {}
+        tmp_list = fio_str.split(',')
+        for i in tmp_list:
+            li = i.split('=')
+            while '' in li:li.remove('')
+            if len(li) == 2 and li[1] != '':
+                key = re.findall('.*?th',li[0].strip('\n').strip('| ').strip(' ').replace(' ',''),re.S)
+                value = re.match(r'\[(.*?)\]',li[1].strip('\n').strip(' ').replace(' ','')).groups()
+                if len(key) != 0 and len(value) != 0:
+                    lat_percent_dict[key[0]] = value[0]
+        return lat_percent_dict
 
     def process_fio_data(self, path, dirname):
         result = {}
         stdout, stderr = common.bash("grep \" *io=.*bw=.*iops=.*runt=.*\|^ *lat.*min=.*max=.*avg=.*stdev=.*\" "+path, True)
+        stdout1, stderr1 = common.bash("grep \" *1.00th.*],\| *30.00th.*],\| *70.00th.*],\| *99.00th.*],\| *99.99th.*]\" "+path, True)
+        stdout2, stderr2 = common.bash("grep \" *clat percentiles\" "+path, True)
+        lat_per_dict = {}
+        if stdout1 != '':
+            lat_per_dict = self.get_lat_persent_dict(stdout1)
+
         fio_data_rw = {}
         fio_data_rw["read"] = {}
         fio_data_rw["write"] = {}
@@ -543,6 +713,16 @@ class Analyzer:
         output_fio_data['write_iops'] = 0
         output_fio_data['write_bw'] = 0
         output_fio_data['write_runtime'] = 0
+        if len(lat_per_dict) != 0:
+            if '99.99th' in lat_per_dict.keys():
+                #output_fio_data['99.99%_lat'] = lat_per_dict['99.99th']
+                lat_persent_unit = re.findall(r"(?<=[\(])[^\)]+(?=[\)])", stdout2.strip('\n').strip(' ').replace(' ',''))
+                if len(lat_persent_unit) != 0:
+                    output_fio_data['99.99%_lat'] = float(common.time_to_sec("%s%s" % (lat_per_dict['99.99th'], lat_persent_unit[0]),'msec'))
+                else:
+                    output_fio_data['99.99%_lat'] = 'null'
+            else:
+                output_fio_data['99.99%_lat'] = 'null'
         output_fio_data['lat_unit'] = 'msec'
         output_fio_data['runtime_unit'] = 'sec'
         output_fio_data['bw_unit'] = 'MB/s'

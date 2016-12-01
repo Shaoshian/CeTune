@@ -14,6 +14,7 @@ import matplotlib.pyplot as pyplot
 import json
 import yaml
 import numpy
+from create_DB import *
 
 pp = pprint.PrettyPrinter(indent=4)
 class Visualizer:
@@ -26,6 +27,7 @@ class Visualizer:
             else:
                 all_path = path
         self.all_conf_data = config.Config("%s/all.conf" % all_path)
+        self.db_path = self.all_conf_data.get("dest_dir")
         self.result = result
         self.output = []
         if path:
@@ -81,41 +83,176 @@ class Visualizer:
         common.bash("scp -r %s/cetune_history.html %s" % (self.path, self.dest_dir_remote_bak))
         common.bash("scp -r ../visualizer/include %s" % (self.dest_dir_remote_bak))
 
+    def dataparse(self,data):
+        #print data
+        rows = []
+        list_data = []
+        for i in data.keys():
+            list_data.append(data[i])
+        for i in list_data:
+            row = []
+            row.extend(re.findall('id=(.*?)>',re.search('(<tr.*?>)', i, re.S).group(1),re.S))
+            row.extend(re.findall('<td .*?>(.*?)</td>', i, re.S))
+            for i in range(len(row)):
+                row[i] = row[i].strip()
+            rows.append(row)
+        return rows
+
+    def parse_to_html(self,data):
+        lines = {}
+        for i in data:
+            i =list(i)
+            line = ''
+            for j in range(len(i)):
+                if j == 0:
+                    line += "<tr href=%s/%s.html id=%s>"%(i[j],i[j],i[j])
+                else:
+                    if type(i[j]) == float:
+                        line += "<td title='%.3f'>%.3f</td>\n"%(i[j],i[j])
+                    elif type(i[j]) == int:
+                        line += "<td title='%d'>%d</td>\n"%(i[j],i[j])
+                    else:
+                        line += "<td title='%s'>%s</td>\n"%(i[j],i[j])
+            if line != '':
+                line += "</tr>\n"
+            lines[i[1]] = line
+        return lines
+
+
+    def get_column_nu_and_ind(self,file_ph):
+        f = open(file_ph,'r+')
+        ft = f.read()
+        tr = re.findall('<tr>(.*?)</tr>', ft, re.S)
+        th = re.findall('<th>(.*?)</th>', tr[0], re.S)
+        f.close()
+        ind = 0
+        ind1 = 0
+        num = 0
+        for i in range(len(th)):
+            if "Description" in th[i]:
+                ind = i
+                break
+        if ind!=0:
+            f1 = open(file_ph,'r+')
+            data = f1.readlines()
+            for i in range(len(data)):
+                if '</td>' in data[i]:
+                    if ind1 == ind:
+                        num = i
+                        break
+                    ind1 += 1
+        if num != 0:
+            return num
+
+
+    def edit_html(self,file_path,num,new_description):
+        f = open(file_path,'r+')
+        ft = f.readlines()
+        ft[num] = "<td>"+new_description+"</td>\n"
+        f = open(file_path,'w+')
+        f.writelines(ft)
+        f.close()
+
+    def update_report_list_db(self,tr_id,new_description):
+        db_path = os.path.join(self.db_path,"cetune_report.db")
+        if os.path.exists(db_path):
+            database.update_by_runid(tr_id,'description',new_description,db_path)
+            file_path = self.db_path+tr_id+"/conf/description"
+            if os.path.exists(file_path):
+                os.remove(file_path)
+                f = open(file_path, 'w')
+                f.write(new_description)
+                f.close()
+            else:
+                f = open(file_path, 'w')
+                f.write(new_description)
+                f.close()
+            html_path = os.path.join(self.db_path,tr_id,tr_id+".html")
+            nu = self.get_column_nu_and_ind(html_path)
+            if nu != 0:
+                self.edit_html(html_path,nu,new_description)
+        else:
+            print "Error:database -/mnt/data/cetune_report.db not exist."
+
+    def check_DB_case_list(self,re_dir,dbpath):
+        if os.path.exists(dbpath):
+            output = os.popen("ls "+re_dir)
+            li = output.readlines()
+            local_list = []
+            for i in li:
+                if os.path.exists(os.path.join(re_dir,i.strip('\n'),i.strip('\n')+'.html')):
+                    local_list.append(i.strip('\n'))
+            #local_case_list = []
+            #for i in local_list:
+            #    if i != 'cetune_report.db':
+            #        local_case_list.append(i)
+            DB_list = database.get_runid_list(dbpath)
+            local_list.sort()
+            DB_list.sort()
+            if local_list == DB_list:
+                return True
+            else:
+                return False
+        else:
+            return False
+
     def generate_history_view(self, remote_host="127.0.0.1", remote_dir="/mnt/data/", user='root', html_format=True):
         common.printout("LOG","Generating history view")
-        stdout, stderr = common.pdsh(user, [remote_host], "find %s -name '*.html' | grep -v 'cetune_history'|sort -u | while read file;do session=`echo $file | awk -F/ {'print $(NF-1)'}`; awk -v session=\"$session\" 'BEGIN{find=0;}{if(match($1,\"tbody\")&&find==2){find=0;}if(find==2){if(match($1,\"<tr\"))printf(\"<tr href=\"session\"/\"session\".html id=\"session\">\");else print ;};if(match($1,\"div\")&&match($2,\"summary\"))find=1;if(match($1,\"tbody\")&&find==1){find+=1}}' $file; done" % remote_dir, option="check_return")
-        res = common.format_pdsh_return(stdout)
-        if remote_host not in res:
-            common.printout("ERROR","Generating history view failed")
-            return False
-        # some modification in greped trs
-        formated_report = {}
-        report_lines = re.findall('(<tr.*?</tr>)',res[remote_host],re.S)
-        for line in report_lines:
-            tr_start = re.search('(<tr.*?>)', line, re.S).group(1)
-            data = re.findall('<td>(.*?)</td>', line, re.S)
+        dbpath = os.path.join(self.db_path,"cetune_report.db")
+        if not self.check_DB_case_list(self.db_path,dbpath):
+            stdout, stderr = common.pdsh(user, [remote_host], "find %s -name '*.html' | grep -v 'cetune_history'|sort -u | while read file;do session=`echo $file | awk -F/ {'print $(NF-1)'}`; awk -v session=\"$session\" 'BEGIN{find=0;}{if(match($1,\"tbody\")&&find==2){find=0;}if(find==2){if(match($1,\"<tr\"))printf(\"<tr href=\"session\"/\"session\".html id=\"session\">\");else print ;};if(match($1,\"div\")&&match($2,\"summary\"))find=1;if(match($1,\"tbody\")&&find==1){find+=1}}' $file; done" % remote_dir, option="check_return")
+            res = common.format_pdsh_return(stdout)
+            if remote_host not in res:
+                common.printout("ERROR","Generating history view failed")
+                return False
+            # some modification in greped trs
+            formated_report = {}
+            report_lines = re.findall('(<tr.*?</tr>)',res[remote_host],re.S)
+            for line in report_lines:
+                tr_start = re.search('(<tr.*?>)', line, re.S).group(1)
+                data = re.findall('<td>(.*?)</td>', line, re.S)
 
-            runid = int(data[0])
-            if len(data) < 16:
-                data.insert(1, "Unknown")
-            if len(data) < 17:
-                data.insert(2, "")
-            formated_report[runid] = tr_start
-            for block in data:
-                formated_report[runid] += "<td title='%s'>%s</td>\n" % (block, block)
-            formated_report[runid] += "</tr>\n"
-            
+                #runid = int(data[0])
+                runid = re.findall('id=(.*?)>', tr_start, re.S)[0]
+                if len(data) < 17:
+                    data.insert(2, "")
+                formated_report[runid] = tr_start
+                for block in data:
+                    formated_report[runid] += "<td title='%s'>%s</td>\n" % (block, block)
+                formated_report[runid] += "</tr>\n"
+
+            #create DB and create TB
+            if not os.path.exists(dbpath):
+                database.createTB(dbpath)
+            rows = self.dataparse(formated_report)
+            runid_list = []
+            while [] in rows:
+                rows.remove([])
+            for i in rows:
+                runid_list.append(i[0])
+                if not database.check_case_exist(i[0],dbpath):
+                    if len(i) < 19:
+                        i.insert(2, "Unknown")
+                    database.insert_to_TB(i,dbpath)
+            #delete case from DB which is not exist
+            diff_case_list = [ i for i in database.get_runid_list(dbpath) if i not in runid_list ]
+            if len(diff_case_list) != 0:
+                for i in diff_case_list:
+                    database.delete_case_by_runid(i,dbpath)
+        lines = self.parse_to_html(database.select_report_list(dbpath))
         output = []
         #output.append("<h1>CeTune History Page</h1>")
-        output.append("<table class='cetune_table'>")
-        output.append(" <thead>")
+        output.append("<table id='report_list' class='cetune_table'>")
+        #output.append(" <thead>")
         output.extend( self.getSummaryTitle() )
-        output.append(" </thead>")
-        output.append(" <tbody>")
+        #output.append(" </thead>")
+        #output.append(" <tbody>")
         #output.append(res[remote_host])
-        for runid in sorted(formated_report.keys()):
-            output.append(formated_report[runid])
-        output.append(" </tbody>")
+        for runid in sorted(lines.keys()):
+            output.append(lines[runid])
+        #output.append(" </tbody>")
+        output.append(" </table>")
+        output.extend(self.getscripthtml())
         output.append("<script>")
         output.append("$('.cetune_table tr').dblclick(function(){var path=$(this).attr('href'); window.location=path})")
         output.append("</script>")
@@ -124,27 +261,39 @@ class Visualizer:
         else:
             return "".join(output)
 
+
+    def getscripthtml(self):
+        output = []
+        output.append("<script type='text/javascript'>")
+        #output.append("$(function(){")
+        output.append("$('#report_list').resizableColumns({store: store});")
+        output.append("$('#report_list').xlsTableFilter();")
+        #output.append("});")
+        output.append("</script>")
+        return output
+
     def getSummaryTitle(self):
         output = []
         output.append(" <tr>")
-        output.append(" <th>runid</th>")
-        output.append(" <th><a title='CeTune Status' id='runid_status' href='#'>Status</a></th>")
-        output.append(" <th><a title='Testcase description' id='runid_description' href='#'>Description</a></th>")
-        output.append(" <th><a title='Size of Op Request' id='runid_op_size' href='#'>Op_Size</a></th>")
-        output.append(" <th><a title='Type of Op Request' id='runid_op_type' href='#'>Op_Type</a></th>")
-        output.append(" <th><a title='Queue_depth/Container Number' id='runid_QD' href='#'>QD</a></th>")
-        output.append(" <th><a title='Type of Workload' id='runid_engine' href='#'>Driver</a></th>")
-        output.append(" <th><a title='Storage Node Number' id='runid_serverNum' href='#'>SN_Number</a></th>")
-        output.append(" <th><a title='Client Node Number' id='runid_clientNum' href='#'>CN_Number</a></th>")
-        output.append(" <th><a title='Workers Number/Objects Number' id='runid_rbdNum' href='#'>Worker</a></th>")
-        output.append(" <th><a title='Test Time be Profiled' id='runid_runtime' href='#'>Runtime(sec)</a></th>")
-        output.append(" <th><a title='Benchmarked IOPS' id='runid_fio_iops' href='#'>IOPS</a></th>")
-        output.append(" <th><a title='Benchmarked Bandwidth' id='runid_fio_bw' href='#'>BW(MB/s)</a></th>")
-        output.append(" <th><a title='Benchmarked Latency' id='runid_fio_latency' href='#'>Latency(ms)</a></th>")
-        output.append(" <th><a title='Storage Node IOPS' id='runid_osd_iops' href='#'>SN_IOPS</a></th>")
-        output.append(" <th><a title='Storage Node Bandwidth' id='runid_osd_bw' href='#'>SN_BW(MB/s)</a></th>")
-        output.append(" <th><a title='Storage Node Latency' id='runid_osd_latency' href='#'>SN_Latency(ms)</a></th>")
-        output.append(" <tr>")
+        output.append(" <th data-resizable-column-id='0'>runid</th>")
+        output.append(" <th data-resizable-column-id='1'><a title='Timestamp' id='runid_timestamp' href='#'>Timestamp</a></th>")
+        output.append(" <th data-resizable-column-id='2'><a title='CeTune Status' id='runid_status' href='#'>Status</a></th>")
+        output.append(" <th data-resizable-column-id='3'><a title='Testcase description' id='runid_description' href='#'>Description</a></th>")
+        output.append(" <th data-resizable-column-id='4'><a title='Size of Op Request' id='runid_op_size' href='#'>Op_Size</a></th>")
+        output.append(" <th data-resizable-column-id='5'><a title='Type of Op Request' id='runid_op_type' href='#'>Op_Type</a></th>")
+        output.append(" <th data-resizable-column-id='6'><a title='Queue_depth/Container Number' id='runid_QD' href='#'>QD</a></th>")
+        output.append(" <th data-resizable-column-id='7'><a title='Type of Workload' id='runid_engine' href='#'>Driver</a></th>")
+        output.append(" <th data-resizable-column-id='8'><a title='Storage Node Number' id='runid_serverNum' href='#'>SN_Number</a></th>")
+        output.append(" <th data-resizable-column-id='9'><a title='Client Node Number' id='runid_clientNum' href='#'>CN_Number</a></th>")
+        output.append(" <th data-resizable-column-id='10'><a title='Workers Number/Objects Number' id='runid_rbdNum' href='#'>Worker</a></th>")
+        output.append(" <th data-resizable-column-id='11'><a title='Test Time be Profiled' id='runid_runtime' href='#'>Runtime(sec)</a></th>")
+        output.append(" <th data-resizable-column-id='12'><a title='Benchmarked IOPS' id='runid_fio_iops' href='#'>IOPS</a></th>")
+        output.append(" <th data-resizable-column-id='13'><a title='Benchmarked Bandwidth' id='runid_fio_bw' href='#'>BW(MB/s)</a></th>")
+        output.append(" <th data-resizable-column-id='14'><a title='Benchmarked Latency' id='runid_fio_latency' href='#'>Latency(ms)</a></th>")
+        output.append(" <th data-resizable-column-id='15'><a title='Storage Node IOPS' id='runid_osd_iops' href='#'>SN_IOPS</a></th>")
+        output.append(" <th data-resizable-column-id='16'><a title='Storage Node Bandwidth' id='runid_osd_bw' href='#'>SN_BW(MB/s)</a></th>")
+        output.append(" <th data-resizable-column-id='17'><a title='Storage Node Latency' id='runid_osd_latency' href='#'>SN_Latency(ms)</a></th>")
+        output.append(" </tr>")
         return output
 
     def add_html_framework(self, maindata):

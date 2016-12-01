@@ -6,6 +6,7 @@ lib_path = os.path.abspath(os.path.join('..'))
 sys.path.append(lib_path)
 from collections import OrderedDict
 from conf import common
+from conf import description
 import re
 import argparse
 
@@ -169,15 +170,16 @@ class Config():
             tmp = []
             for add_key, add_value in res["addition"].items():
                 if add_key not in self.group[request_type]:
-                    tmp.append( self._set_config( request_type, add_key, add_value, option="update" ) )
+                    tmp.append( self._set_config( request_type, add_key, description.DefaultValue.get_defaultvalue_by_key(add_key), option="update" ) )
             res["addition"] = tmp
 
             self.conf_data[key] = value
+            if value in self.conf_data.keys():
+                self.conf_data[value] = description.DefaultValue.get_defaultvalue_by_key(value)
             if request_type not in self.group:
                 self.group[request_type] = []
             if key not in self.group[request_type]:
                 self.group[request_type].append(key)
-
         return res
     
     def check_config(self, key, value):
@@ -199,6 +201,7 @@ class Config():
         required["fio_capping"] = {"type":"bool"}
         required["enable_zipf"] = {"if":"true", "type":"bool", "addition":{"random_distribution":"zipf:1.2"}}
         required["perfcounter_time_precision_level"] = {"type":"int"}
+        required["Description"] = {"type":"parameters"}
         required["cosbench_controller"] = {"type":"node_list"}
         required["cosbench_driver"] = {"type":"node_list"}
         required["cosbench_cluster_ip"] = {"type":"ip"}
@@ -208,6 +211,7 @@ class Config():
         required["list_vclient"] = {"type":"node_list"}
         required["monitoring_interval"] = {"type":"int"}
         required["disk_format"] = {"type":"diskformat"}
+        required["disable_tuning_check"] = {"type":"bool"}
 
         helper = ConfigHelper()
         if key in required:
@@ -257,20 +261,23 @@ class BenchmarkConfig():
         self.default_conf_path = "../conf/cases.default.conf"
  
     def set_config(self, case_json_list):
+        print "=======================set_config=========================="
         testcase_keys = [
             "benchmark_driver","worker", "container_size", "iopattern",
-            "op_size", "object_size/QD", "rampup", "runtime", "device", "desc"
+            "op_size", "object_size/QD", "rampup", "runtime", "device", "parameter", "desc","additional_option"
         ]
         case_list = []
         for tmp_dict in json.loads(case_json_list):
             tmp = []
             for key in testcase_keys:
+                if tmp_dict[key] == "":
+                    tmp_dict[key] = "NULL"
                 tmp.append(tmp_dict[key])
             if tmp not in case_list:
                 case_list.append(tmp)
         output = ""
         for case_items in case_list:
-            output += '%8s\t%4s\t%16s\t%8s\t%8s\t%16s\t%8s\t%8s\t%8s\t%s\n' % ( case_items[0],case_items[1], case_items[2], case_items[3], case_items[4], case_items[5], case_items[6], case_items[7], case_items[8], case_items[9] )
+            output += '%8s\t%4s\t%16s\t%8s\t%8s\t%16s\t%8s\t%8s\t%8s\t%8s\t%s\t%6s\n' % ( case_items[0],case_items[1], case_items[2], case_items[3], case_items[4], case_items[5], case_items[6], case_items[7], case_items[8], case_items[9] ,case_items[10],case_items[11])
         with open("../conf/cases.conf","w") as f:
             f.write( output )
         return False
@@ -282,27 +289,74 @@ class BenchmarkConfig():
                 lines = f.readlines()
             for line in lines:
                 p = line.split()
-                testcase_list.append( self.parse_benchmark_cases( p ) )
-        except:    
+                if len(p) != 0 and p!="\n":
+                    testcase_list.append( self.parse_benchmark_cases( p ) )
+        except:
             common.bash("cp %s %s" % (self.default_conf_path, self.conf_path))
             with open(self.conf_path,"r") as f:
                 lines = f.readlines()
             for line in lines:
                 p = line.split()
-                testcase_list.append( self.parse_benchmark_cases( p ) )
+                if len(p) != 0 and p!="\n":
+                    testcase_list.append( self.parse_benchmark_cases( p ) )
         return testcase_list
-        
+
     def parse_benchmark_cases(self, testcase):
         p = testcase
         testcase_dict = {
             "benchmark_driver":p[0],"worker":p[1], "container_size":p[2], "iopattern":p[3],
             "op_size":p[4], "object_size/QD":p[5], "rampup":p[6], "runtime":p[7], "device":p[8]
         }
-        if len(p) == 10:
-            testcase_dict["description"] = p[9]
+
+        if len(p) == 12:
+            testcase_dict["parameter"] = p[9]
+            testcase_dict["description"] = p[10]
+            testcase_dict["additional_option"] = p[11]
         else:
-            testcase_dict["description"] = ""
+            option_list = ['restart','redeploy']
+            if len(p) == 9:
+                testcase_dict["parameter"] = ""
+                testcase_dict["description"] = ""
+                testcase_dict["additional_option"] = ""
+            elif len(p) == 10:
+                if self.check_parameter_style(p[9]):
+                    testcase_dict["parameter"] = p[9]
+                    testcase_dict["description"] = ""
+                    testcase_dict["additional_option"] = ""
+                elif p[9] in option_list:
+                    testcase_dict["parameter"] = ""
+                    testcase_dict["description"] = ""
+                    testcase_dict["additional_option"] = p[9]
+                else:
+                    testcase_dict["parameter"] = ""
+                    testcase_dict["description"] = p[9]
+                    testcase_dict["additional_option"] = ""
+
+            elif len(p) == 11:
+                if p[10] in option_list:
+                    if self.check_parameter_style(p[9]):
+                        testcase_dict["parameter"] = p[9]
+                        testcase_dict["description"] = ""
+                        testcase_dict["additional_option"] = p[10]
+                    else:
+                        testcase_dict["parameter"] = ""
+                        testcase_dict["description"] = p[9]
+                        testcase_dict["additional_option"] = p[10]
+                else:
+                    testcase_dict["parameter"] = p[9]
+                    testcase_dict["description"] = p[10]
+                    testcase_dict["additional_option"] = ""
+
         return testcase_dict
+    
+    def check_parameter_style(self,paras):
+        if paras != "":
+            for i in paras.split(','):
+                if len(i.split('=')) != 2:
+                    return False
+            return True
+        else:
+            return False
 
 class ConfigHelper():
     def _check_config( self, key, value, requirement=None):
@@ -322,6 +376,14 @@ class ConfigHelper():
         return output
     
     def check_type( self, key, value, value_type):
+        if value_type == "parameters":
+            for i in value.split(","):
+                tmp = i.split('=')
+                while '' in tmp:
+                    tmp.remove('')
+                if len(tmp) != 2:
+                    return [ False, "value type is invalid !" ]
+            return [ True, "" ]
         if value_type == "node_list":
             if not isinstance( value.split(','), list ):
                 return [ False, "Value is a %s, format %s" % (value_type, self.type_example(value_type)) ]
